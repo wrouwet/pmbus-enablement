@@ -7,8 +7,8 @@ This is the checklist for the first session with a real FRDM-MCXA153.
 
 ```bash
 mkdir -p ~/mcxa153-workspace && cd ~/mcxa153-workspace
-gh repo clone wrouwet/frdm-mcxa153-pmbus      # private repo
-cd frdm-mcxa153-pmbus
+git clone https://github.com/wrouwet/pmbus-enablement.git
+cd pmbus-enablement
 sudo scripts/install-host-deps.sh             # apt packages, udev rules for MCU-Link (1fc9)
 scripts/bootstrap.sh                          # Python, west, Zephyr v4.5.0, Arm toolchain
 make test && make build

@@ -14,4 +14,4 @@ manifest:
           - hal_nxp
           - picolibc
   self:
-    path: frdm-mcxa153-pmbus
+    path: pmbus-enablement
