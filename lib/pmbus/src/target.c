@@ -44,6 +44,7 @@ static int write_data_len(const struct pmbus_cmd *cmd, const uint8_t *data, size
 	case PMBUS_T_BYTE:
 		return 1;
 	case PMBUS_T_WORD:
+	case PMBUS_T_WORD_PROC:
 		return 2;
 	case PMBUS_T_BLOCK:
 		return (len >= 1) ? 1 + data[0] : -1;
@@ -125,6 +126,7 @@ static void prepare_read(struct pmbus_target *t)
 		max = 2;
 		break;
 	case PMBUS_T_BLOCK_PROC:
+	case PMBUS_T_WORD_PROC:
 		if (t->rx_len < 2 || t->rx_len != 2 + t->rx[1]) {
 			cml_error(t, PMBUS_CML_INVALID_DATA);
 			return;
@@ -139,7 +141,7 @@ static void prepare_read(struct pmbus_target *t)
 	default:
 		break;
 	}
-	if (cmd->type != PMBUS_T_BLOCK_PROC && t->rx_len != 1) {
+	if (cmd->type != PMBUS_T_BLOCK_PROC && cmd->type != PMBUS_T_WORD_PROC && t->rx_len != 1) {
 		/* Data bytes before the repeated start, which no read protocol has. */
 		cml_error(t, PMBUS_CML_INVALID_DATA);
 		return;
@@ -150,7 +152,8 @@ static void prepare_read(struct pmbus_target *t)
 		cml_error(t, PMBUS_CML_INVALID_DATA);
 		return;
 	}
-	if (cmd->type == PMBUS_T_BLOCK || cmd->type == PMBUS_T_BLOCK_PROC) {
+	if (cmd->type == PMBUS_T_BLOCK || cmd->type == PMBUS_T_BLOCK_PROC ||
+	    cmd->type == PMBUS_T_WORD_PROC) {
 		t->tx[0] = (uint8_t)n;
 		t->tx_len = (uint8_t)(n + 1);
 	} else {

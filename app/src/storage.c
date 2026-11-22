@@ -5,6 +5,13 @@
  * RESTORE_DEFAULT_ALL straight from the I2C interrupt; a work item does the flash
  * erase and write that STORE_DEFAULT_ALL asks for.
  *
+ * Any bus host may send STORE_DEFAULT_ALL (PMBus has no authentication, and
+ * WRITE_PROTECT can be cleared by anyone), and flash survives a limited number of
+ * erases. So a store that changes nothing writes nothing, flash writes are spaced at
+ * least CONFIG_PMBUS_STORE_MIN_INTERVAL_MS apart (the device stays BUSY meanwhile), and
+ * after CONFIG_PMBUS_STORE_MAX_PER_BOOT writes further stores fail with a memory fault
+ * until the next reset.
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -37,6 +44,8 @@ static union {
 } __aligned(4) shadow, pending;
 
 static bool shadow_valid;
+static uint32_t n_writes;
+static int64_t last_write_ms = -CONFIG_PMBUS_STORE_MIN_INTERVAL_MS;
 
 static uint32_t record_crc(const struct record *r)
 {
@@ -74,6 +83,8 @@ static void store_work_fn(struct k_work *work)
 		     flash_area_write(fa, 0, pending.raw, sizeof(pending.raw)) == 0;
 		flash_area_close(fa);
 	}
+	n_writes++;
+	last_write_ms = k_uptime_get();
 	key = irq_lock();
 	if (ok) {
 		shadow = pending;
@@ -81,10 +92,10 @@ static void store_work_fn(struct k_work *work)
 	}
 	pmbus_device_store_done(&pmbus_dev, ok);
 	irq_unlock(key);
-	LOG_INF("STORE_DEFAULT_ALL %s", ok ? "done" : "failed");
+	LOG_INF("STORE_DEFAULT_ALL %s (%u this boot)", ok ? "done" : "failed", n_writes);
 }
 
-static K_WORK_DEFINE(store_work, store_work_fn);
+static K_WORK_DELAYABLE_DEFINE(store_work, store_work_fn);
 
 static void set_alert(void *ctx, bool asserted)
 {
@@ -96,20 +107,34 @@ static void set_alert(void *ctx, bool asserted)
 static void store(void *ctx, const struct pmbus_device_config *cfg)
 {
 	ARG_UNUSED(ctx);
+	/* Nothing new to store: done, without touching flash. */
+	if (shadow_valid && memcmp(&shadow.r.cfg, cfg, sizeof(*cfg)) == 0) {
+		pmbus_device_store_done(&pmbus_dev, true);
+		return;
+	}
+	if (n_writes >= CONFIG_PMBUS_STORE_MAX_PER_BOOT) {
+		pmbus_device_store_done(&pmbus_dev, false);
+		return;
+	}
+	/* The device refuses a second store while BUSY, so pending is ours until done. */
 	memset(&pending, 0xFF, sizeof(pending));
 	pending.r.magic = RECORD_MAGIC;
-	pending.r.cfg = *cfg;
+	memcpy(&pending.r.cfg, cfg, sizeof(*cfg));
 	pending.r.crc = record_crc(&pending.r);
-	k_work_submit(&store_work);
+
+	int64_t wait = last_write_ms + CONFIG_PMBUS_STORE_MIN_INTERVAL_MS - k_uptime_get();
+
+	k_work_schedule(&store_work, K_MSEC(wait > 0 ? wait : 0));
 }
 
+/* The device validates what it gets (pmbus_device_config_valid()) before using it. */
 static bool restore(void *ctx, struct pmbus_device_config *cfg)
 {
 	ARG_UNUSED(ctx);
 	if (!shadow_valid) {
 		return false;
 	}
-	*cfg = shadow.r.cfg;
+	memcpy(cfg, &shadow.r.cfg, sizeof(*cfg));
 	return true;
 }
 

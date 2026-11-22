@@ -11,8 +11,15 @@ config PMBUS_ADDRESS
 	  sit at 0x50.
 
 config PMBUS_UPDATE_PERIOD_MS
-	int "Sensor and limit evaluation period (ms)"
+	int "Sensor reading period (ms)"
 	default 200
+
+config PMBUS_TICK_MS
+	int "Device model tick (ms)"
+	default 10
+	help
+	  How often the output sequencing (TON_*/TOFF_*), fault delays and retries, the
+	  fan and the limits are evaluated. Writes from the host are evaluated at once.
 
 config PMBUS_SMBUS_TIMEOUT_MS
 	int "SMBus target timeout (ms)"
@@ -21,5 +28,27 @@ config PMBUS_SMBUS_TIMEOUT_MS
 	  If a transaction makes no progress for this long, the target interface resets
 	  and the transaction is dropped. SMBus requires devices to reset between 25 ms
 	  and 35 ms of SCL held low.
+
+config PMBUS_STORE_MIN_INTERVAL_MS
+	int "Minimum time between flash writes for STORE_DEFAULT_ALL (ms)"
+	default 5000
+	help
+	  Limits how fast a misbehaving or hostile bus host can wear out the flash.
+	  A store inside the interval is delayed; the device reports BUSY meanwhile.
+
+config PMBUS_STORE_MAX_PER_BOOT
+	int "Flash writes allowed per boot for STORE_DEFAULT_ALL"
+	default 64
+	help
+	  Further stores fail with STATUS_CML memory fault until the next reset. Stores
+	  that change nothing don't count.
+
+config PMBUS_SIM_KNOBS
+	bool "Simulation knobs on the bus (MFR_SPECIFIC_00..03)"
+	default y
+	help
+	  Lets a bus host set the simulated load, input voltage and fan failure, and
+	  inject status bits. Useful on the bench; turn it off for a device that sits on a
+	  shared bus, where any host could otherwise fake faults. The shell's knobs stay.
 
 source "Kconfig.zephyr"

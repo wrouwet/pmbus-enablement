@@ -21,6 +21,14 @@ def settle(dev):
         time.sleep(SETTLE)
 
 
+def wait(dev, seconds):
+    """Lets time pass on the device: simulated on sim, real on hardware."""
+    if hasattr(dev.t, "advance"):
+        dev.t.advance(seconds * 1000)
+    else:
+        time.sleep(seconds)
+
+
 def test_identification(dev):
     assert dev.read_byte(c.PMBUS_REVISION) == 0x33
     cap = dev.read_byte(c.CAPABILITY)
@@ -185,3 +193,121 @@ def test_sim_power_cycle_keeps_stored_config(dev, sim):
 def test_wrong_address_nacks(dev):
     with pytest.raises(OSError):
         dev.t.xfer(dev.addr ^ 0x01, bytes([c.STATUS_BYTE]), 1)
+
+
+# --- Commands for the Linux driver and a realistic converter model ---
+
+
+def test_ratings_and_identity(dev):
+    assert dev.read_linear11(c.MFR_VIN_MIN) == 40.0
+    assert dev.read_linear11(c.MFR_VIN_MAX) == 60.0
+    assert dev.read_linear11(c.MFR_IOUT_MAX) == 10.0
+    assert dev.read_linear11(c.MFR_POUT_MAX) == 120.0
+    assert dev.read_vout(c.MFR_VOUT_MAX) == pytest.approx(14.4, abs=0.002)
+    assert dev.read_linear11(c.MFR_MAX_TEMP_1) == 100.0
+    assert dev.read_string(c.IC_DEVICE_ID) == "MCXA153"
+
+
+def test_user_data(dev):
+    dev.block_write(c.USER_DATA_00 + 5, b"asset-1234")
+    assert dev.block_read(c.USER_DATA_00 + 5) == b"asset-1234"
+    dev.block_write(c.USER_DATA_00 + 5, b"x" * 17)  # one byte too many
+    assert dev.read_byte(c.STATUS_CML) & 0x40
+    assert dev.block_read(c.USER_DATA_00 + 5) == b"asset-1234"
+
+
+def test_query_new_commands(dev):
+    assert dev.query(c.SMBALERT_MASK) == 0xFC      # supported, read, write, not numeric
+    assert dev.query(c.READ_FAN_SPEED_1) == 0xA0   # supported, read, linear
+    assert dev.query(c.MFR_INJECT) == 0xDC         # write only
+
+
+def test_smbalert_mask(dev):
+    dev.write_alert_mask(c.STATUS_TEMPERATURE, 0x40)  # mask OT_WARN
+    assert dev.read_alert_mask(c.STATUS_TEMPERATURE) == 0x40
+    dev.write_linear11(c.OT_WARN_LIMIT, -50.0)
+    settle(dev)
+    assert dev.read_byte(c.STATUS_TEMPERATURE) & 0x40
+    assert dev.alert_response() is None, "masked: no alert"
+    dev.write_alert_mask(c.STATUS_TEMPERATURE, 0)
+
+
+def test_inject_status_other(dev):
+    dev.write_word(c.MFR_INJECT, c.STATUS_OTHER | (0x01 << 8))
+    assert dev.read_byte(c.STATUS_OTHER) == 0x01
+    assert dev.read_word(c.STATUS_WORD) & 0x0200
+    assert dev.alert_response() == dev.addr
+    dev.write_byte(c.STATUS_OTHER, 0x01)
+    assert dev.read_word(c.STATUS_WORD) == 0
+
+
+def test_vout_max_clamps(dev):
+    dev.write_vout(c.VOUT_MAX, 13.0)
+    dev.write_vout(c.VOUT_COMMAND, 13.5)
+    assert dev.read_vout() == pytest.approx(13.0, abs=0.002)
+    assert dev.read_byte(c.STATUS_VOUT) & 0x08
+
+
+def test_power_limits_and_input_current(dev):
+    dev.write_linear11(c.MFR_SIM_LOAD, 9.8)  # 117.6 W out
+    settle(dev)
+    assert dev.read_byte(c.STATUS_IOUT) & 0x01  # POUT_OP_WARN
+    assert dev.read_linear11(c.POUT_OP_WARN_LIMIT) == 115.0
+    dev.write_linear11(c.IIN_OC_WARN_LIMIT, 2.0)
+    settle(dev)
+    assert dev.read_byte(c.STATUS_INPUT) & 0x02  # IIN_OC_WARN
+
+
+def test_sequencing(dev):
+    dev.write_linear11(c.TON_DELAY, 300)
+    dev.write_linear11(c.TON_RISE, 300)
+    dev.write_byte(c.OPERATION, 0x00)
+    dev.write_byte(c.OPERATION, 0x80)
+    assert dev.read_byte(c.STATUS_BYTE) & 0x40, "off during TON_DELAY"
+    wait(dev, 0.8)
+    assert dev.read_vout() == pytest.approx(12.0, abs=0.002)
+    assert dev.read_word(c.STATUS_WORD) == 0
+    dev.write_linear11(c.TOFF_DELAY, 300)
+    dev.write_byte(c.OPERATION, 0x40)  # soft off
+    assert dev.read_vout() == pytest.approx(12.0, abs=0.002), "still on during TOFF_DELAY"
+    wait(dev, 0.5)
+    assert dev.read_byte(c.STATUS_BYTE) & 0x40
+
+
+def test_retry_then_latch(dev):
+    dev.write_byte(c.VOUT_OV_FAULT_RESPONSE, 0x80 | (2 << 3) | 2)  # 2 retries, 200 ms apart
+    dev.write_vout(c.VOUT_OV_FAULT_LIMIT, 11.0)
+    settle(dev)
+    assert dev.read_byte(c.STATUS_VOUT) & 0x80
+    wait(dev, 1.5)
+    assert dev.read_byte(c.STATUS_BYTE) & 0x40, "latched off after the retries"
+    dev.write_vout(c.VOUT_OV_FAULT_LIMIT, 13.8)
+    wait(dev, 0.5)
+    assert dev.read_byte(c.STATUS_BYTE) & 0x40, "stays latched"
+    dev.write_byte(c.OPERATION, 0x00)
+    dev.write_byte(c.OPERATION, 0x80)
+    settle(dev)
+    assert dev.read_vout() == pytest.approx(12.0, abs=0.002)
+
+
+def test_current_limit(dev):
+    dev.write_byte(c.IOUT_OC_FAULT_RESPONSE, 0x00)  # constant current
+    dev.write_byte(c.VOUT_UV_FAULT_RESPONSE, 0x00)
+    dev.write_linear11(c.MFR_SIM_LOAD, 12.0)
+    settle(dev)
+    assert dev.read_linear11(c.READ_IOUT) == pytest.approx(10.0, abs=0.01)
+    assert dev.read_vout() == pytest.approx(10.0, abs=0.01)
+    assert dev.read_byte(c.STATUS_IOUT) & 0x80
+
+
+def test_fan(dev):
+    assert dev.read_byte(c.FAN_CONFIG_12) & 0x80, "fan 1 installed"
+    assert dev.read_linear11(c.READ_FAN_SPEED_1) > 1000
+    dev.write_linear11(c.FAN_COMMAND_1, 100)
+    wait(dev, 4)
+    assert dev.read_linear11(c.READ_FAN_SPEED_1) > 17000
+    dev.write_byte(c.MFR_SIM_FAN, 1)
+    wait(dev, 5)
+    assert dev.read_byte(c.STATUS_FANS_1_2) & 0x80
+    assert dev.read_word(c.STATUS_WORD) & 0x0400
+    dev.write_linear11(c.FAN_COMMAND_1, 0)

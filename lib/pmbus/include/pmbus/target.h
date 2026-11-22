@@ -33,6 +33,11 @@ enum pmbus_cmd_type {
 	PMBUS_T_WORD,       /* Read/Write Word, little-endian on the wire */
 	PMBUS_T_BLOCK,      /* Block Read/Write, byte count first */
 	PMBUS_T_BLOCK_PROC, /* Block Write-Block Read Process Call */
+	/*
+	 * Written with Write Word, read with a Block Write-Block Read Process Call whose
+	 * written byte selects what to read (SMBALERT_MASK).
+	 */
+	PMBUS_T_WORD_PROC,
 };
 
 #define PMBUS_A_R 0x1

@@ -20,7 +20,8 @@ uint8_t pmbus_crc8(uint8_t crc, const uint8_t *buf, size_t len);
 /*
  * LINEAR11: a 5-bit two's-complement exponent N in bits 15:11 and an 11-bit
  * two's-complement mantissa Y in bits 10:0; the value is Y * 2^N. The encoder picks the
- * smallest N that fits, which keeps the most precision.
+ * smallest N that fits, which keeps the most precision. Decoding saturates: the largest
+ * LINEAR11 and ULINEAR16 values exceed the int32_t milli-unit range.
  */
 uint16_t pmbus_linear11_encode(int32_t milli);
 int32_t pmbus_linear11_decode(uint16_t word);

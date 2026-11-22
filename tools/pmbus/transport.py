@@ -34,6 +34,7 @@ class SimTransport:
         self.lib.sim_xfer.argtypes = [ctypes.c_uint8, ctypes.c_char_p, ctypes.c_int,
                                       ctypes.c_char_p, ctypes.c_int]
         self.lib.sim_set_temps.argtypes = [ctypes.c_int32, ctypes.c_int32]
+        self.lib.sim_advance.argtypes = [ctypes.c_uint32]
         self.lib.sim_init(addr)
 
     def xfer(self, addr, write, read_len):
@@ -45,6 +46,10 @@ class SimTransport:
     # Simulator-only controls, for tests.
     def set_temps(self, t1_mc, t2_mc):
         self.lib.sim_set_temps(t1_mc, t2_mc)
+
+    def advance(self, ms):
+        """Lets simulated time pass."""
+        self.lib.sim_advance(int(ms))
 
     def alert(self):
         return bool(self.lib.sim_alert())

@@ -74,6 +74,8 @@ int main(void)
 	char serial[17];
 	struct pmbus_sensors s = {0};
 	uint32_t last_transactions = 0;
+	uint32_t since_sensors = 0;
+	int64_t last = k_uptime_get();
 	unsigned int key;
 	int ret;
 
@@ -84,6 +86,7 @@ int main(void)
 	make_serial(serial, sizeof(serial));
 	pmbus_device_init(&pmbus_dev, CONFIG_PMBUS_ADDRESS, &storage_device_ops, NULL,
 			  DT_NODE_HAS_PROP(DT_PATH(zephyr_user), smbalert_gpios), serial);
+	pmbus_dev.sim_knobs = IS_ENABLED(CONFIG_PMBUS_SIM_KNOBS);
 	if (storage_init() != 0) {
 		LOG_ERR("storage partition unreadable; using defaults");
 	}
@@ -102,13 +105,27 @@ int main(void)
 	}
 
 	while (true) {
-		k_msleep(CONFIG_PMBUS_UPDATE_PERIOD_MS);
+		k_msleep(CONFIG_PMBUS_TICK_MS);
 
-		s.temp1_valid = read_temp(0, &s.temp1_mc);
-		s.temp2_valid = read_temp(1, &s.temp2_mc);
+		/* Output sequencing and fault timers run every tick, sensors less often. */
+		int64_t now = k_uptime_get();
+		uint32_t elapsed = (uint32_t)(now - last);
+		bool fresh = false;
+
+		last = now;
+		since_sensors += elapsed;
+		if (since_sensors >= CONFIG_PMBUS_UPDATE_PERIOD_MS) {
+			since_sensors = 0;
+			s.temp1_valid = read_temp(0, &s.temp1_mc);
+			s.temp2_valid = read_temp(1, &s.temp2_mc);
+			fresh = true;
+		}
 
 		key = irq_lock();
-		pmbus_device_update(&pmbus_dev, &s);
+		if (fresh) {
+			pmbus_dev.sensors = s;
+		}
+		pmbus_device_advance(&pmbus_dev, elapsed);
 		bool on = pmbus_dev.output_on;
 		/* Being off, busy or not power-good alone is not a fault. */
 		bool flagged = (pmbus_device_status_word(&pmbus_dev) &

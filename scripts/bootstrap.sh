@@ -29,7 +29,8 @@ fi
 if [ ! -x "$VENV/bin/python" ]; then
     "$TOOLS/uv/uv" venv --seed --python "$PYTHON_VERSION" "$VENV"
 fi
-"$TOOLS/uv/uv" pip install --python "$VENV/bin/python" west
+# cmake and ninja from PyPI, so the build needs no system packages for them.
+"$TOOLS/uv/uv" pip install --python "$VENV/bin/python" west cmake ninja
 
 export PATH=$VENV/bin:$PATH
 cd "$WS"
@@ -44,5 +45,8 @@ if [ ! -d "$TOOLS/zephyr-sdk-$SDK_VERSION" ]; then
     # install if it finds one, so give it a private $HOME inside the workspace.
     HOME=$TOOLS west sdk install --version "$SDK_VERSION" --install-base "$TOOLS" --toolchains arm-zephyr-eabi
 fi
+
+# The device pack pyOCD needs to flash the MCX A153 (make flash RUNNER=pyocd).
+pyocd pack install mcxa153 || echo "pyocd pack install failed; RUNNER=pyocd won't work" >&2
 
 echo "Bootstrap complete. Next: make build"

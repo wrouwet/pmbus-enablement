@@ -42,6 +42,7 @@ def reset(d):
     # The simulation knobs are not part of the stored config.
     d.write_linear11(c.MFR_SIM_LOAD, 5.0)
     d.write_linear11(c.MFR_SIM_VIN, 54.0)
+    d.write_byte(c.MFR_SIM_FAN, 0)
     d.write_byte(c.OPERATION, 0)
     d.write_byte(c.OPERATION, 0x80)
     d.send_byte(c.CLEAR_FAULTS)

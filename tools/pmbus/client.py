@@ -12,17 +12,30 @@ STORE_DEFAULT_ALL = 0x11
 RESTORE_DEFAULT_ALL = 0x12
 CAPABILITY = 0x19
 QUERY = 0x1A
+SMBALERT_MASK = 0x1B
 VOUT_MODE = 0x20
 VOUT_COMMAND = 0x21
+VOUT_MAX = 0x24
 VOUT_MARGIN_HIGH = 0x25
 VOUT_MARGIN_LOW = 0x26
+VOUT_MIN = 0x2B
+VIN_ON = 0x35
+VIN_OFF = 0x36
+FAN_CONFIG_12 = 0x3A
+FAN_COMMAND_1 = 0x3B
 VOUT_OV_FAULT_LIMIT = 0x40
+VOUT_OV_FAULT_RESPONSE = 0x41
 VOUT_OV_WARN_LIMIT = 0x42
 VOUT_UV_WARN_LIMIT = 0x43
 VOUT_UV_FAULT_LIMIT = 0x44
+VOUT_UV_FAULT_RESPONSE = 0x45
 IOUT_OC_FAULT_LIMIT = 0x46
+IOUT_OC_FAULT_RESPONSE = 0x47
+IOUT_OC_LV_FAULT_LIMIT = 0x48
+IOUT_OC_LV_FAULT_RESPONSE = 0x49
 IOUT_OC_WARN_LIMIT = 0x4A
 OT_FAULT_LIMIT = 0x4F
+OT_FAULT_RESPONSE = 0x50
 OT_WARN_LIMIT = 0x51
 UT_WARN_LIMIT = 0x52
 UT_FAULT_LIMIT = 0x53
@@ -30,6 +43,18 @@ VIN_OV_FAULT_LIMIT = 0x55
 VIN_OV_WARN_LIMIT = 0x57
 VIN_UV_WARN_LIMIT = 0x58
 VIN_UV_FAULT_LIMIT = 0x59
+IIN_OC_FAULT_LIMIT = 0x5B
+IIN_OC_WARN_LIMIT = 0x5D
+POWER_GOOD_ON = 0x5E
+POWER_GOOD_OFF = 0x5F
+TON_DELAY = 0x60
+TON_RISE = 0x61
+TON_MAX_FAULT_LIMIT = 0x62
+TOFF_DELAY = 0x64
+TOFF_FALL = 0x65
+POUT_OP_FAULT_LIMIT = 0x68
+POUT_OP_WARN_LIMIT = 0x6A
+PIN_OP_WARN_LIMIT = 0x6B
 STATUS_BYTE = 0x78
 STATUS_WORD = 0x79
 STATUS_VOUT = 0x7A
@@ -37,12 +62,16 @@ STATUS_IOUT = 0x7B
 STATUS_INPUT = 0x7C
 STATUS_TEMPERATURE = 0x7D
 STATUS_CML = 0x7E
+STATUS_OTHER = 0x7F
+STATUS_MFR_SPECIFIC = 0x80
+STATUS_FANS_1_2 = 0x81
 READ_VIN = 0x88
 READ_IIN = 0x89
 READ_VOUT = 0x8B
 READ_IOUT = 0x8C
 READ_TEMPERATURE_1 = 0x8D
 READ_TEMPERATURE_2 = 0x8E
+READ_FAN_SPEED_1 = 0x90
 READ_POUT = 0x96
 READ_PIN = 0x97
 PMBUS_REVISION = 0x98
@@ -52,8 +81,23 @@ MFR_REVISION = 0x9B
 MFR_LOCATION = 0x9C
 MFR_DATE = 0x9D
 MFR_SERIAL = 0x9E
+MFR_VIN_MIN = 0xA0
+MFR_VIN_MAX = 0xA1
+MFR_IIN_MAX = 0xA2
+MFR_PIN_MAX = 0xA3
+MFR_VOUT_MIN = 0xA4
+MFR_VOUT_MAX = 0xA5
+MFR_IOUT_MAX = 0xA6
+MFR_POUT_MAX = 0xA7
+IC_DEVICE_ID = 0xAD
+IC_DEVICE_REV = 0xAE
+USER_DATA_00 = 0xB0
+MFR_MAX_TEMP_1 = 0xC0
+MFR_MAX_TEMP_2 = 0xC1
 MFR_SIM_LOAD = 0xD0  # this device: simulated load current, LINEAR11 amperes
 MFR_SIM_VIN = 0xD1   # this device: simulated input voltage, LINEAR11 volts
+MFR_SIM_FAN = 0xD2   # this device: bit 0 stops the simulated fan
+MFR_INJECT = 0xD3    # this device: word, low byte a STATUS_x code, high byte bits to latch
 
 ALERT_RESPONSE_ADDR = 0x0C
 
@@ -169,6 +213,12 @@ class PMBusClient:
         write = bytes([cmd, len(data)]) + data
         count = self._read(write, 1, pec=False)[0]
         return self._read(write, 1 + count)[1:]
+
+    def read_alert_mask(self, status_cmd):
+        return self.process_call_block(SMBALERT_MASK, [status_cmd])[0]
+
+    def write_alert_mask(self, status_cmd, mask):
+        self.write_word(SMBALERT_MASK, status_cmd | (mask << 8))
 
     def query(self, cmd):
         return self.process_call_block(QUERY, [cmd])[0]

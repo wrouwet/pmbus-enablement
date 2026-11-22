@@ -62,6 +62,12 @@ void sim_init(uint8_t addr)
 	sim_set_temps(25000, 30000);
 }
 
+/* Lets time pass: output sequencing, fault delays and retries, the fan. */
+void sim_advance(uint32_t ms)
+{
+	pmbus_device_advance(&dev, ms);
+}
+
 void sim_erase_storage(void)
 {
 	have_stored = false;

@@ -36,13 +36,24 @@ static int64_t scale_from_milli(int32_t milli, int n)
 	return div_round(milli, (int64_t)1000 << n);
 }
 
-/* y * 2^n * 1000, rounded. */
+/* y * 2^n * 1000, rounded, saturated to the int32_t range. */
 static int32_t scale_to_milli(int32_t y, int n)
 {
+	int64_t v;
+
 	if (n < 0) {
-		return (int32_t)div_round((int64_t)y * 1000, (int64_t)1 << -n);
+		v = div_round((int64_t)y * 1000, (int64_t)1 << -n);
+	} else {
+		/* |y| < 2^16 and n < 16, so this fits in 64 bits. */
+		v = (int64_t)y * 1000 * ((int64_t)1 << n);
 	}
-	return (int32_t)((int64_t)y * 1000 * ((int64_t)1 << n));
+	if (v > INT32_MAX) {
+		return INT32_MAX;
+	}
+	if (v < INT32_MIN) {
+		return INT32_MIN;
+	}
+	return (int32_t)v;
 }
 
 uint16_t pmbus_linear11_encode(int32_t milli)
